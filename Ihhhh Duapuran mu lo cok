@@ -1,29 +1,93 @@
-from telethon.sync import TelegramClient
+from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession
 import os
+import datetime
 
-# Masukkan kunci dari my.telegram.org tadi
-API_ID = '1234567' 
-API_HASH = 'abcdef1234567890abcdef'
+# --- KONFIGURASI ---
+API_ID = '1234567'       # Ganti dengan milikmu
+API_HASH = 'abcdef123...' # Ganti dengan milikmu
+BOT_TOKEN = '12345:ABC...' # Token dari BotFather
 
-# Folder tempat menyimpan akun-akunmu
-FOLDER_AKUN = 'database_akun_nathan'
-if not os.path.exists(FOLDER_AKUN):
-    os.makedirs(FOLDER_AKUN)
+bot = TelegramClient('bot_brankas', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-def simpan_akun_baru():
-    phone = input("Masukkan Nomor HP (Contoh: +62812...): ")
-    
-    # Membuat file .session di dalam folder database
-    session_path = os.path.join(FOLDER_AKUN, f"{phone}.session")
-    
-    client = TelegramClient(session_path, API_ID, API_HASH)
-    
-    try:
-        client.start(phone)
-        print(f"\n✅ BERHASIL! Akun {phone} sekarang tersimpan di brankas.")
-        client.disconnect()
-    except Exception as e:
-        print(f"❌ Gagal simpan akun: {e}")
+# Database sederhana (Folder untuk file .session)
+if not os.path.exists('brankas_session'):
+    os.makedirs('brankas_session')
 
-# Jalankan fungsi
-simpan_akun_baru()
+# --- 1. WELCOME & ATURAN ---
+@bot.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    welcome_text = (
+        "**Welcome ke Bot Brankas Akun**\n"
+        "Bot ini bisa menyimpan akun selama developer masih hidup.\n\n"
+        "⚠️ **ATURAN:**\n"
+        "1. Jangan gunakan untuk akun utama (pribadi).\n"
+        "2. Developer tidak bertanggung jawab atas penyalahgunaan akun.\n"
+        "3. Jangan hapus sesi bot dari 'Devices' di HP-mu agar tetap tersimpan."
+    )
+    await event.reply(welcome_text, buttons=[Button.inline("SAYA SETUJU ✅", b"setuju")])
+
+# --- 2. SETELAH KLIK SETUJU ---
+@bot.on(events.CallbackQuery(data=b"setuju"))
+async def agreed(event):
+    await event.edit(
+        "**Selamat! Anda dapat menggunakan bot ini.**\n\n"
+        "/simpan - Untuk simpan akun\n"
+        "/ambil - Untuk mengambil akun\n"
+        "/cek - Cek akun yang tersimpan"
+    )
+
+# --- 3. PROSES SIMPAN AKUN (LOGIKA SEUNGMIN) ---
+@bot.on(events.NewMessage(pattern='/simpan'))
+async def simpan(event):
+    async with event.client.conversation(event.chat_id) as conv:
+        await conv.send_message("📞 **Masukkan nomor HP** (Contoh: +62812...):")
+        phone = (await conv.get_response()).text
+        
+        # Kirim kode via Telethon
+        client = TelegramClient(StringSession(), API_ID, API_HASH)
+        await client.connect()
+        
+        try:
+            send_code = await client.send_code_request(phone)
+            await conv.send_message("📩 **Masukkan kode dengan spasi** (Contoh: 1 2 3 4 5):")
+            raw_code = (await conv.get_response()).text
+            code = raw_code.replace(" ", "") # Buang spasi
+            
+            try:
+                await client.sign_in(phone, code)
+            except Exception: # Jika butuh Password (2FA)
+                await conv.send_message("🔐 **Masukkan PW (jika ada):**")
+                password = (await conv.get_response()).text
+                await client.sign_in(password=password)
+            
+            # SIMPAN SESI KE FILE
+            session_str = client.session.save()
+            with open(f"brankas_session/{phone}.txt", "w") as f:
+                f.write(session_str)
+            
+            # FORMAT OUTPUT SEPERTI REQUEST-MU
+            tgl = datetime.datetime.now().strftime("%d %B %Y")
+            user_me = await client.get_me()
+            mention = f"[{user_me.first_name}](tg://user?id={user_me.id})"
+            
+            await conv.send_message(
+                f"✅ **Akun mu tersimpan!**\n"
+                f"{tgl} `{user_me.id}` {mention}"
+            )
+            await client.disconnect()
+
+        except Exception as e:
+            await conv.send_message(f"❌ Gagal: {str(e)}")
+
+# --- 4. CEK AKUN ---
+@bot.on(events.NewMessage(pattern='/cek'))
+async def cek(event):
+    files = os.listdir('brankas_session')
+    if not files:
+        await event.reply("Belum ada akun tersimpan.")
+    else:
+        daftar = "\n".join([f"• `{f.replace('.txt', '')}`" for f in files])
+        await event.reply(f"📂 **Akun Tersimpan:**\n{daftar}")
+
+print("Bot Brankas Jalan...")
