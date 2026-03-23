@@ -1,0 +1,29 @@
+from telethon.sync import TelegramClient
+import os
+
+# Masukkan kunci dari my.telegram.org tadi
+API_ID = '1234567' 
+API_HASH = 'abcdef1234567890abcdef'
+
+# Folder tempat menyimpan akun-akunmu
+FOLDER_AKUN = 'database_akun_nathan'
+if not os.path.exists(FOLDER_AKUN):
+    os.makedirs(FOLDER_AKUN)
+
+def simpan_akun_baru():
+    phone = input("Masukkan Nomor HP (Contoh: +62812...): ")
+    
+    # Membuat file .session di dalam folder database
+    session_path = os.path.join(FOLDER_AKUN, f"{phone}.session")
+    
+    client = TelegramClient(session_path, API_ID, API_HASH)
+    
+    try:
+        client.start(phone)
+        print(f"\n✅ BERHASIL! Akun {phone} sekarang tersimpan di brankas.")
+        client.disconnect()
+    except Exception as e:
+        print(f"❌ Gagal simpan akun: {e}")
+
+# Jalankan fungsi
+simpan_akun_baru()
